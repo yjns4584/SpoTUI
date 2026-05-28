@@ -1,0 +1,11 @@
+# Compiled binary
+/bin/
+
+# Claude Code local settings
+/.claude/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
