@@ -15,6 +15,12 @@ import (
 	"github.com/yesid/spotui/internal/tui"
 )
 
+// defaultClientID is baked in at build time so users don't have to paste it.
+// A Spotify PKCE client ID is public by design (there is no client secret),
+// and only accounts added to the app in development mode can authenticate,
+// so embedding it here is safe.
+var defaultClientID = "f8b1f64a19a8436bbe19efdc0968e9ab"
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -22,6 +28,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Precedence: env var > saved config > baked-in default > interactive prompt.
+	if cfg.ClientID == "" {
+		cfg.ClientID = defaultClientID
+	}
 	if id := os.Getenv("SPOTUI_CLIENT_ID"); id != "" {
 		cfg.ClientID = id
 	}
