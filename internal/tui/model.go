@@ -46,7 +46,12 @@ const (
 type msgPlaybackState spotify.PlaybackState
 type msgUser spotify.User
 type msgPlaylists []spotify.Playlist
-type msgTracks []spotify.Track
+type msgTracksPage struct {
+	playlistID string
+	offset     int
+	tracks     []spotify.Track
+	hasMore    bool
+}
 type msgCoverRendered struct {
 	key      string // playlist/album ID
 	rendered string // ANSI art string
@@ -103,6 +108,7 @@ type Model struct {
 
 	// state
 	loading     bool
+	loadingMore bool   // background playlist pages still streaming in
 	err         error  // error from data operations (shown in track panel)
 	playbackErr string // last playback error (shown in player panel, non-blocking)
 }
@@ -197,16 +203,19 @@ func fetchPlayback(c *spotify.Client) tea.Cmd {
 	}
 }
 
-func fetchPlaylistTracks(c *spotify.Client, playlistID string) tea.Cmd {
+// fetchPlaylistTracksPage loads a single page of a playlist's tracks. The first
+// page (offset 0) renders immediately; the msgTracksPage handler then chains
+// further pages so large playlists fill in without blocking the UI.
+func fetchPlaylistTracksPage(c *spotify.Client, playlistID string, offset int) tea.Cmd {
 	return func() tea.Msg {
-		debugLog("fetching tracks for playlist: " + playlistID)
-		tracks, err := c.PlaylistTracks(context.Background(), playlistID)
+		debugLog(fmt.Sprintf("fetching tracks for playlist %s @ offset %d", playlistID, offset))
+		tracks, hasMore, err := c.PlaylistTracksPage(context.Background(), playlistID, offset)
 		if err != nil {
 			debugLog("tracks error: " + err.Error())
 			return msgError{err}
 		}
-		debugLog(fmt.Sprintf("tracks loaded: %d", len(tracks)))
-		return msgTracks(tracks)
+		debugLog(fmt.Sprintf("tracks page loaded: %d (more: %v)", len(tracks), hasMore))
+		return msgTracksPage{playlistID: playlistID, offset: offset, tracks: tracks, hasMore: hasMore}
 	}
 }
 

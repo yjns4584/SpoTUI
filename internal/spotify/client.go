@@ -245,33 +245,54 @@ func (c *Client) Me(ctx context.Context) (*User, error) {
 }
 
 func (c *Client) UserPlaylists(ctx context.Context) ([]Playlist, error) {
-	var result struct {
-		Items []Playlist `json:"items"`
+	// Spotify caps /me/playlists at 50 per request, so page through with offset
+	// until "next" is null to list users with more than 50 playlists.
+	var playlists []Playlist
+	for offset := 0; ; offset += 50 {
+		var result struct {
+			Items []Playlist `json:"items"`
+			Next  string     `json:"next"`
+		}
+		if err := c.get(ctx, fmt.Sprintf("/me/playlists?limit=50&offset=%d", offset), &result); err != nil {
+			return nil, err
+		}
+		playlists = append(playlists, result.Items...)
+		if result.Next == "" {
+			break
+		}
 	}
-	if err := c.get(ctx, "/me/playlists?limit=50", &result); err != nil {
-		return nil, err
-	}
-	return result.Items, nil
+	return playlists, nil
 }
 
-func (c *Client) PlaylistTracks(ctx context.Context, playlistID string) ([]Track, error) {
+// TracksPageSize is the number of playlist items requested per page; it's also
+// the Spotify-imposed maximum for the /items endpoint. Callers advance the
+// offset by this amount to page through, regardless of how many items a page
+// yields after filtering (podcast episodes / unavailable tracks are dropped).
+const TracksPageSize = 100
+
+// PlaylistTracksPage fetches one page of a playlist's tracks starting at offset.
+// hasMore reports whether further pages exist, so callers can load the first
+// page for an instant UI and fetch the rest in the background.
+func (c *Client) PlaylistTracksPage(ctx context.Context, playlistID string, offset int) (tracks []Track, hasMore bool, err error) {
 	// The /items endpoint nests each track under "item" (it can also hold
 	// podcast episodes), unlike the legacy /tracks endpoint which used "track".
 	var result struct {
 		Items []struct {
 			Track Track `json:"item"`
 		} `json:"items"`
+		Next string `json:"next"`
 	}
-	if err := c.get(ctx, "/playlists/"+playlistID+"/items?limit=100", &result); err != nil {
-		return nil, err
+	path := fmt.Sprintf("/playlists/%s/items?limit=%d&offset=%d", playlistID, TracksPageSize, offset)
+	if err := c.get(ctx, path, &result); err != nil {
+		return nil, false, err
 	}
-	tracks := make([]Track, 0, len(result.Items))
+	tracks = make([]Track, 0, len(result.Items))
 	for _, item := range result.Items {
 		if item.Track.ID != "" {
 			tracks = append(tracks, item.Track)
 		}
 	}
-	return tracks, nil
+	return tracks, result.Next != "", nil
 }
 
 func (c *Client) Search(ctx context.Context, query string) ([]Track, []Playlist, error) {

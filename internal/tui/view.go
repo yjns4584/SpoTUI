@@ -218,7 +218,14 @@ func (m Model) viewTrackList(w, h int) string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(t.Dim).Render("  select a playlist · press [/] to search") + "\n")
 	}
 
-	numW := 3
+	// Number column widens with the track count so 3-digit indices (100+) don't
+	// overflow their slot and wrap the row — wrapping breaks the 2-rows-per-track
+	// assumption the sliding window below relies on.
+	numDigits := len(fmt.Sprintf("%d", len(m.tracks)))
+	if numDigits < 2 {
+		numDigits = 2
+	}
+	numW := numDigits + 1 // digits + trailing space
 	durW := 5
 	nameW := cw - numW - durW - 1 // 1 char minimum gap between name and duration
 
@@ -247,7 +254,7 @@ func (m Model) viewTrackList(w, h int) string {
 		name := truncate(tr.Name, nameW)
 		artist := truncate(tr.ArtistsString(), cw-numW)
 		dur := fmtDuration(tr.Duration)
-		num := fmt.Sprintf("%2d ", i+1)
+		num := fmt.Sprintf("%*d ", numDigits, i+1)
 
 		var numS, nameS lipgloss.Style
 		if i == m.trackCursor {
@@ -283,6 +290,8 @@ func (m Model) viewTrackList(w, h int) string {
 		titleStr = lipgloss.NewStyle().Foreground(t.Accent2).Render("─ results: "+q+" ─")
 	case m.searching:
 		titleStr = lipgloss.NewStyle().Foreground(t.Accent).Render("─ searching ─")
+	case m.loadingMore:
+		titleStr = lipgloss.NewStyle().Foreground(t.Dim).Render("─ tracks · loading more… ─")
 	default:
 		titleStr = lipgloss.NewStyle().Foreground(t.Dim).Render("─ tracks ─")
 	}

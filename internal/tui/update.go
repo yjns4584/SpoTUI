@@ -60,12 +60,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case msgTracks:
-		m.tracks = []spotify.Track(msg)
-		m.trackCursor = 0
+	case msgTracksPage:
+		// Drop late background pages from a playlist the user already left.
+		if m.currentContext != "spotify:playlist:"+msg.playlistID {
+			return m, nil
+		}
+		if msg.offset == 0 {
+			m.tracks = msg.tracks
+			m.trackCursor = 0
+			m.activePane = PaneTrackList
+		} else {
+			m.tracks = append(m.tracks, msg.tracks...)
+		}
 		m.loading = false
+		m.loadingMore = msg.hasMore
 		m.err = nil
-		m.activePane = PaneTrackList
+		if msg.hasMore {
+			// Advance by the page size (not len(tracks)): the API offset counts
+			// raw items, but filtered-out episodes shrink each returned page.
+			return m, fetchPlaylistTracksPage(m.client, msg.playlistID, msg.offset+spotify.TracksPageSize)
+		}
 		return m, nil
 
 	case msgCoverRendered:
@@ -76,6 +90,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searching = false
 		m.searchMode = false
 		m.searchResults = true
+		m.loadingMore = false
 		m.err = nil
 		m.searchTracks = msg.tracks
 		m.searchPlaylists = msg.playlists
@@ -261,9 +276,12 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.loading = true
+			m.loadingMore = false
 			m.err = nil
+			m.tracks = nil // clear stale tracks while the first page loads
+			m.trackCursor = 0
 			m.currentContext = "spotify:playlist:" + pl.ID
-			return m, fetchPlaylistTracks(m.client, pl.ID)
+			return m, fetchPlaylistTracksPage(m.client, pl.ID, 0)
 		}
 	case PaneTrackList:
 		if m.trackCursor < len(m.tracks) {
