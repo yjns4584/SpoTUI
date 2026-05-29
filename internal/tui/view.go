@@ -254,24 +254,35 @@ func (m Model) viewTrackList(w, h int) string {
 		name := truncate(tr.Name, nameW)
 		artist := truncate(tr.ArtistsString(), cw-numW)
 		dur := fmtDuration(tr.Duration)
+
+		// The now-playing row swaps its number for a ▶ marker and goes green;
+		// otherwise the cursor row (accent) takes precedence.
+		playing := m.playback != nil && m.playback.Item.ID != "" && tr.ID == m.playback.Item.ID
 		num := fmt.Sprintf("%*d ", numDigits, i+1)
+		if playing {
+			num = fmt.Sprintf("%*s ", numDigits, "▶")
+		}
 
 		var numS, nameS lipgloss.Style
-		if i == m.trackCursor {
-			if focused {
-				numS = lipgloss.NewStyle().Foreground(t.Accent)
-				nameS = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
-			} else {
-				numS = lipgloss.NewStyle().Foreground(t.Text)
-				nameS = lipgloss.NewStyle().Foreground(t.Text).Bold(true)
-			}
-		} else {
+		switch {
+		case playing:
+			numS = lipgloss.NewStyle().Foreground(t.Green)
+			nameS = lipgloss.NewStyle().Foreground(t.Green).Bold(true)
+		case i == m.trackCursor && focused:
+			numS = lipgloss.NewStyle().Foreground(t.Accent)
+			nameS = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+		case i == m.trackCursor:
+			numS = lipgloss.NewStyle().Foreground(t.Text)
+			nameS = lipgloss.NewStyle().Foreground(t.Text).Bold(true)
+		default:
 			numS = dimS
 			nameS = lipgloss.NewStyle().Foreground(t.Text)
 		}
 
-		// Pad so total visible width = cw exactly: num(3) + name + pad + dur
-		pad := cw - numW - lipgloss.Width(name) - lipgloss.Width(dur)
+		// Pad so total visible width = cw exactly. Measure the number column's
+		// real width (the ▶ marker may differ from a digit) so the row never
+		// overflows and wraps.
+		pad := cw - lipgloss.Width(num) - lipgloss.Width(name) - lipgloss.Width(dur)
 		if pad < 1 {
 			pad = 1
 		}
