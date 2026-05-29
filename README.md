@@ -17,10 +17,16 @@ necesitas tener abierta la app de Spotify** ni ningún otro cliente.
 ## Requisitos
 
 - **Cuenta de Spotify Premium** (obligatorio para reproducir).
-- **Linux o macOS** (en Windows `spotifyd` da problemas).
-- El instalador se encarga de **Go** y **spotifyd**; no necesitas instalarlos a mano.
+- **Linux, macOS o Windows 11.**
+- El instalador se encarga del motor de audio; no necesitas instalarlo a mano:
+  - En **Linux/macOS** usa `spotifyd`.
+  - En **Windows** usa `librespot` (el mismo motor que spotifyd lleva por
+    dentro, que sí funciona en Windows). SpoTUI detecta el sistema operativo
+    automáticamente y arranca el correcto.
 
 ## Instalación
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/yjns4584/SpoTUI.git
@@ -30,6 +36,25 @@ cd SpoTUI
 
 El script detecta tu gestor de paquetes (pacman, apt, dnf, zypper o brew),
 instala Go y spotifyd si te faltan, compila el binario y lo deja en tu `PATH`.
+
+### Windows 11
+
+Abre **PowerShell** dentro del repo clonado y ejecuta:
+
+```powershell
+git clone https://github.com/yjns4584/SpoTUI.git
+cd SpoTUI
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+El script detecta tu gestor de paquetes (winget, scoop o choco), instala Go y
+`librespot` si te faltan, compila `spotui.exe` y lo añade a tu `PATH`. Como no
+hay binarios precompilados de librespot para Windows, se compila desde el código
+con Rust (la primera vez tarda unos minutos). Usa `-SkipLibrespot` si solo
+quieres controlar otros dispositivos sin reproducir audio en el PC.
+
+> Usa **Windows Terminal** para que la interfaz se vea correctamente.
 
 Después, lánzalo desde cualquier terminal:
 
@@ -42,7 +67,8 @@ spotui
 La primera vez se abrirá el navegador **dos veces** para iniciar sesión:
 
 1. Una para autorizar el control de la reproducción (API web).
-2. Otra para autorizar `spotifyd` (la reproducción de audio local).
+2. Otra para autorizar el motor de audio local (`spotifyd` en Linux/macOS,
+   `librespot` en Windows).
 
 Es normal y solo ocurre la primera vez; después arranca directo.
 
