@@ -74,45 +74,103 @@ if (Test-Have "go") {
 # Windows has no spotifyd build, so SpoTUI uses librespot instead — the same
 # engine spotifyd is built on. It registers a Spotify Connect device that the
 # app then controls, giving you local PC playback just like on Linux.
-if ($SkipLibrespot) {
-    Write-Warn "Skipping librespot install (-SkipLibrespot). SpoTUI will run in control-only mode."
-} elseif (Test-Have "librespot") {
-    Write-Info "librespot already installed."
-} else {
-    Write-Info "Installing librespot (for local PC playback)..."
-    $installed = $false
+#
+# No prebuilt librespot binary is published for Windows (it isn't in scoop or as
+# a GitHub release asset), so it's compiled from source with cargo. That needs a
+# C linker/assembler:
+#   * the MSVC linker (link.exe), from Visual Studio Build Tools, or
+#   * a full MinGW-w64 toolchain used with Rust's GNU target.
+# rustup's bundled "self-contained" MinGW is incomplete (it has dlltool/ld/gcc
+# but no as.exe), so when going the GNU route we install a real MinGW-w64. The
+# GNU route needs no admin rights, so we prefer it whenever link.exe is absent.
 
-    # Prefer scoop if available — fast, no compilation.
-    if ($PM -eq "scoop") {
-        try { scoop install librespot; $installed = Test-Have "librespot" } catch { $installed = $false }
+# Ensure-MinGW puts a complete MinGW-w64 (as.exe + dlltool.exe) on PATH, required
+# to build the windows-* crates with Rust's GNU target. scoop's 'gcc' and choco's
+# 'mingw' both ship full binutils; winget has no good mingw package, so we
+# bootstrap scoop (no admin) when that's all that's available.
+function Ensure-MinGW {
+    if ((Test-Have "as") -and (Test-Have "dlltool")) {
+        Write-Info "MinGW-w64 toolchain already present."
+        return
     }
+    Write-Info "Installing MinGW-w64 (C toolchain needed to build librespot)..."
 
-    # Fall back to building from source with cargo (Rust). No prebuilt Windows
-    # binaries are published, so this compiles librespot — it can take several
-    # minutes the first time.
-    if (-not $installed) {
-        if (-not (Test-Have "cargo")) {
-            Write-Info "Installing the Rust toolchain (needed to build librespot)..."
-            switch ($PM) {
-                "winget" { winget install --id Rustlang.Rustup -e --accept-source-agreements --accept-package-agreements }
-                "scoop"  { scoop install rustup; rustup default stable }
-                "choco"  { choco install rustup.install -y }
-                default  { Write-Warn "Install Rust from https://rustup.rs, then re-run." }
-            }
+    $mpm = $PM
+    if ($mpm -eq "winget" -and -not (Test-Have "scoop")) {
+        Write-Info "Bootstrapping scoop (no admin) to obtain MinGW-w64..."
+        try {
+            Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
             Update-Path
-        }
-
-        if (Test-Have "cargo") {
-            Write-Info "Compiling librespot with cargo (this may take a few minutes)..."
-            try { cargo install librespot; Update-Path; $installed = Test-Have "librespot" } catch { $installed = $false }
-        }
+            if (Test-Have "scoop") { $mpm = "scoop" }
+        } catch { Write-Warn "scoop bootstrap failed: $_" }
     }
 
-    if (-not $installed) {
+    switch ($mpm) {
+        "scoop" {
+            scoop bucket add main
+            scoop install gcc
+            $gccBin = Join-Path $env:USERPROFILE "scoop\apps\gcc\current\bin"
+            if (Test-Path $gccBin) { $env:PATH = "$gccBin;" + $env:PATH }
+        }
+        "choco"  { choco install mingw -y }
+        default  { Write-Warn "No package manager can install MinGW-w64 automatically." }
+    }
+    Update-Path
+}
+
+# Install-Librespot builds and installs librespot from source, picking the MSVC
+# path when its linker is available and falling back to the no-admin GNU path.
+function Install-Librespot {
+    if (Test-Have "librespot") { Write-Info "librespot already installed."; return }
+
+    Write-Info "Installing librespot (for local PC playback)..."
+
+    if (-not (Test-Have "cargo")) {
+        Write-Info "Installing the Rust toolchain (needed to build librespot)..."
+        switch ($PM) {
+            "winget" { winget install --id Rustlang.Rustup -e --accept-source-agreements --accept-package-agreements }
+            "scoop"  { scoop install rustup; rustup default stable }
+            "choco"  { choco install rustup.install -y }
+            default  { Write-Warn "Install Rust from https://rustup.rs, then re-run."; return }
+        }
+        Update-Path
+    }
+    if (-not (Test-Have "cargo")) {
+        Write-Warn "cargo still not on PATH. Open a new terminal and re-run, or install Rust from https://rustup.rs."
+        return
+    }
+
+    if (Test-Have "link") {
+        # MSVC linker present (Visual Studio Build Tools) — the default target builds.
+        Write-Info "Compiling librespot with the MSVC toolchain (this may take a few minutes)..."
+        try { cargo install librespot --locked } catch {}
+    } else {
+        Write-Info "No MSVC linker (link.exe) found — building with the GNU toolchain (no admin needed)."
+        rustup toolchain install stable-x86_64-pc-windows-gnu
+        Ensure-MinGW
+        if (-not ((Test-Have "as") -and (Test-Have "dlltool"))) {
+            Write-Warn "Couldn't set up a MinGW-w64 toolchain (need as.exe + dlltool.exe)."
+            Write-Warn "Install one (e.g. 'scoop install gcc' or 'choco install mingw -y') and re-run."
+            return
+        }
+        Write-Info "Compiling librespot with the GNU toolchain (this may take a few minutes)..."
+        try { cargo +stable-x86_64-pc-windows-gnu install librespot --locked } catch {}
+    }
+    Update-Path
+
+    if (Test-Have "librespot") {
+        Write-Info "librespot installed."
+    } else {
         Write-Warn "Couldn't install librespot automatically."
         Write-Warn "SpoTUI will still build and run, but without local PC playback."
-        Write-Warn "Install it later with:  cargo install librespot   (needs Rust from https://rustup.rs)"
+        Write-Warn "Install it later with:  cargo install librespot --locked   (needs Rust from https://rustup.rs)"
     }
+}
+
+if ($SkipLibrespot) {
+    Write-Warn "Skipping librespot install (-SkipLibrespot). SpoTUI will run in control-only mode."
+} else {
+    Install-Librespot
 }
 
 # -- Build -------------------------------------------------------------------
